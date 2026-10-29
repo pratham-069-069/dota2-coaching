@@ -1,5 +1,11 @@
 # 🎮 Dota 2 Coaching Intelligence Platform
 
+[![CI Pipeline](https://github.com/pratham-069-069/dota2-coaching/actions/workflows/ci.yml/badge.svg)](https://github.com/pratham-069-069/dota2-coaching/actions/workflows/ci.yml)
+[![CD Pipeline](https://github.com/pratham-069-069/dota2-coaching/actions/workflows/cd.yml/badge.svg)](https://github.com/pratham-069-069/dota2-coaching/actions/workflows/cd.yml)
+[![Docker](https://img.shields.io/badge/Docker-Multi--Stage-2496ED?logo=docker&logoColor=white)](https://github.com/pratham-069-069/dota2-coaching/pkgs/container/dota2-coaching%2Fbackend)
+[![Python 3.11](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
+
 An end-to-end Data Science and Machine Learning platform built for **coaches, pro players, and competitive teams** using 50,000 matches (~1.4 GB) of competitive Dota 2 data.
 
 ---
