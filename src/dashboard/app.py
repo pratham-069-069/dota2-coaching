@@ -16,6 +16,7 @@ from src.models.draft_advisor import DraftAdvisor
 from src.models.coach_engine import BetweenMatchCoach
 from src.models.player_profiler import PlayerProfiler
 from src.models.item_advisor import ItemAdvisor
+from src.data.config import FEATURES_DIR
 from src.data.features import HERO_ID_TO_NAME, NAME_TO_HERO_ID, ALL_HERO_IDS
 
 st.set_page_config(
