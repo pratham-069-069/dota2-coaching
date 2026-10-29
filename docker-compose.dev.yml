@@ -1,0 +1,41 @@
+services:
+  backend-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: dota2-backend-dev
+    command: ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    volumes:
+      - ./src:/app/src
+      - ./tests:/app/tests
+      - ./models:/app/models
+      - ./data/features:/app/data/features
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - LOG_LEVEL=debug
+    networks:
+      - dota2-dev-net
+
+  frontend-dev:
+    image: node:20-alpine
+    container_name: dota2-frontend-dev
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: ["sh", "-c", "npm install && npm run dev -- --host 0.0.0.0 --port 5173"]
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8000
+    depends_on:
+      - backend-dev
+    networks:
+      - dota2-dev-net
+
+networks:
+  dota2-dev-net:
+    driver: bridge
+

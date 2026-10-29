@@ -1,0 +1,105 @@
+name: CI - Continuous Integration Pipeline
+
+on:
+  push:
+    branches: [ master, main, dev ]
+  pull_request:
+    branches: [ master, main ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ==========================================================
+  # 1. Backend Python Testing & Linting
+  # ==========================================================
+  backend-ci:
+    name: Backend Test Suite (Python 3.11)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install flake8 pytest httpx
+
+      - name: Lint with Flake8 (Syntax errors & undefined symbols)
+        run: |
+          # Stop build on syntax errors or undefined names
+          flake8 src/ --count --select=E9,F63,F7,F82 --show-source --statistics
+          # Warnings check (exit-zero allows pipeline to continue while reporting style warnings)
+          flake8 src/ --count --exit-zero --max-complexity=15 --max-line-length=120 --statistics
+
+      - name: Run Platform Integration & Unit Test Suite
+        run: |
+          python tests/test_platform.py
+
+  # ==========================================================
+  # 2. Frontend React / Vite Linting & Production Build
+  # ==========================================================
+  frontend-ci:
+    name: Frontend Build & Oxlint (Node 20)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Frontend Dependencies
+        run: npm ci
+
+      - name: Run Oxlint Linter
+        run: npm run lint
+
+      - name: Test Production Vite Build
+        run: npm run build
+
+  # ==========================================================
+  # 3. Docker Container Build Verification
+  # ==========================================================
+  docker-build-verification:
+    name: Docker Build Sanity Check
+    needs: [ backend-ci, frontend-ci ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Backend Docker Image (Dry Run)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.backend
+          push: false
+          tags: dota2-backend:ci-test
+
+      - name: Build Frontend Docker Image (Dry Run)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.frontend
+          push: false
+          tags: dota2-frontend:ci-test
+

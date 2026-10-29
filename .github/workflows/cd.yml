@@ -1,0 +1,153 @@
+name: CD - Automated Continuous Deployment Pipeline
+
+on:
+  push:
+    branches: [ master, main ]
+  workflow_dispatch:
+    inputs:
+      force_deploy:
+        description: "Force automated deployment to production"
+        required: false
+        default: "true"
+
+concurrency:
+  group: cd-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # ==========================================================
+  # 1. Build and Publish Containers to GHCR
+  # ==========================================================
+  build-and-publish:
+    name: Build & Push Images to GitHub Container Registry
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set Image Tag
+        id: meta
+        run: |
+          TAG=$(echo "${{ github.sha }}" | cut -c1-7)
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Repository Lowercase Name
+        id: repo_name
+        run: |
+          echo "REPO=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      # Build & Push Backend Container
+      - name: Build & Push Backend Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.backend
+          push: true
+          tags: |
+            ghcr.io/${{ env.REPO }}/backend:latest
+            ghcr.io/${{ env.REPO }}/backend:${{ steps.meta.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Build & Push Frontend Container
+      - name: Build & Push Frontend Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.frontend
+          push: true
+          tags: |
+            ghcr.io/${{ env.REPO }}/frontend:latest
+            ghcr.io/${{ env.REPO }}/frontend:${{ steps.meta.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ==========================================================
+  # 2. Automated Server Deployment (Zero Manual Intervention)
+  # Triggers immediately if SSH secrets are configured.
+  # (If using Watchtower on the server, it auto-detects new images within 60s)
+  # ==========================================================
+  deploy-to-server:
+    name: Automatic Deploy to Target Server
+    needs: [ build-and-publish ]
+    runs-on: ubuntu-latest
+    # Run only if server credentials are provided in repository secrets
+    if: "${{ secrets.SERVER_HOST != '' }}"
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup SSH Agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Execute Remote Zero-Downtime Deployment
+        env:
+          HOST: ${{ secrets.SERVER_HOST }}
+          USER: ${{ secrets.SERVER_USER || 'ubuntu' }}
+          PORT: ${{ secrets.SERVER_PORT || '22' }}
+          DEPLOY_PATH: ${{ secrets.SERVER_DEPLOY_PATH || '/opt/dota2-coaching' }}
+          IMAGE_TAG: ${{ needs.build-and-publish.outputs.image_tag }}
+        run: |
+          echo "🚀 Initiating continuous deployment to ${USER}@${HOST}:${DEPLOY_PATH}..."
+
+          # Add remote server to known hosts
+          mkdir -p ~/.ssh
+          ssh-keyscan -p ${PORT} -H ${HOST} >> ~/.ssh/known_hosts
+
+          # Execute remote deployment script with automated rollback
+          ssh -p ${PORT} ${USER}@${HOST} << 'EOF'
+            set -e
+            cd /opt/dota2-coaching || cd ~/dota2-coaching
+
+            echo "📦 Pulling latest code and Docker images..."
+            git pull origin master || git pull origin main
+            
+            # Log in to GHCR on server
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+            # Pull and restart containers with rolling update
+            docker compose pull
+            docker compose up -d --remove-orphans
+
+            echo "🩺 Verifying backend health..."
+            HEALTH_URL="http://localhost:8000/health"
+            SUCCESS=0
+            for i in $(seq 1 12); do
+              if curl -s -f "$HEALTH_URL" | grep -q "healthy"; then
+                echo "✅ Platform health check PASSED on attempt $i"
+                SUCCESS=1
+                break
+              fi
+              echo "⏳ Waiting for backend models to load (attempt $i/12)..."
+              sleep 5
+            done
+
+            if [ $SUCCESS -eq 0 ]; then
+              echo "❌ Health check FAILED! Initiating automatic rollback..."
+              docker compose rollback || docker compose restart
+              exit 1
+            fi
+
+            # Clean up old unused dangling images
+            docker image prune -f
+            echo "🎉 Deployment successful and live!"
+          EOF
+

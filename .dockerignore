@@ -1,0 +1,38 @@
+# Version control
+.git
+.gitignore
+
+# Documentation & Markdown
+*.md
+docs/
+
+# Python cache & artifacts
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.coverage
+htmlcov
+
+# Node & Frontend
+frontend/node_modules
+frontend/dist
+.oxlintrc.json
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Large raw training CSV dumps (not needed in production inference)
+data/raw/*
+!data/raw/hero_names.csv
+!data/raw/player_ratings.csv
+
+# Docker & CI
+.github
+.gitlab-ci.yml
+docker-compose*.yml
+Dockerfile*
+

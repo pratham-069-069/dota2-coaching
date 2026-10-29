@@ -1,0 +1,145 @@
+# ==========================================================
+# Dota 2 Coaching Intelligence Platform — GitLab CI/CD Pipeline
+# Full lifecycle: Linting -> Testing -> Container Build -> Auto-Deploy
+# ==========================================================
+
+stages:
+  - lint
+  - test
+  - build
+  - deploy
+
+variables:
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: ""
+  BACKEND_IMAGE: "$CI_REGISTRY_IMAGE/backend"
+  FRONTEND_IMAGE: "$CI_REGISTRY_IMAGE/frontend"
+
+# Cache dependencies across jobs
+cache:
+  key: "${CI_COMMIT_REF_SLUG}"
+  paths:
+    - .cache/pip
+    - frontend/node_modules/
+
+# ==========================================================
+# Stage 1: Linting
+# ==========================================================
+python:flake8:
+  stage: lint
+  image: python:3.11-slim
+  before_script:
+    - pip install --upgrade pip
+    - pip install flake8
+  script:
+    - echo "Running Python Flake8 linter..."
+    - flake8 src/ --count --select=E9,F63,F7,F82 --show-source --statistics
+    - flake8 src/ --count --exit-zero --max-complexity=15 --max-line-length=120 --statistics
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" || $CI_PIPELINE_SOURCE == "merge_request_event"'
+
+frontend:oxlint:
+  stage: lint
+  image: node:20-alpine
+  before_script:
+    - cd frontend
+    - npm ci
+  script:
+    - echo "Running Frontend Oxlint linter..."
+    - npm run lint
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" || $CI_PIPELINE_SOURCE == "merge_request_event"'
+
+# ==========================================================
+# Stage 2: Automated Testing
+# ==========================================================
+backend:pytest:
+  stage: test
+  image: python:3.11-slim
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends libgomp1 curl
+    - pip install --upgrade pip
+    - pip install -r requirements.txt
+    - pip install pytest httpx
+  script:
+    - echo "Executing 21-Test Automated Integration & ML Model Suite..."
+    - python tests/test_platform.py
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" || $CI_PIPELINE_SOURCE == "merge_request_event"'
+
+frontend:build_check:
+  stage: test
+  image: node:20-alpine
+  before_script:
+    - cd frontend
+    - npm ci
+  script:
+    - echo "Testing Frontend Vite Production Build..."
+    - npm run build
+  artifacts:
+    expire_in: 1 day
+    paths:
+      - frontend/dist/
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" || $CI_PIPELINE_SOURCE == "merge_request_event"'
+
+# ==========================================================
+# Stage 3: Container Build & Push to Registry
+# ==========================================================
+build:containers:
+  stage: build
+  image: docker:25.0
+  services:
+    - docker:25.0-dind
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+  script:
+    - echo "Building backend Docker container..."
+    - docker build -f Dockerfile.backend -t $BACKEND_IMAGE:latest -t $BACKEND_IMAGE:$CI_COMMIT_SHORT_SHA .
+    - docker push $BACKEND_IMAGE:latest
+    - docker push $BACKEND_IMAGE:$CI_COMMIT_SHORT_SHA
+
+    - echo "Building frontend Docker container..."
+    - docker build -f Dockerfile.frontend -t $FRONTEND_IMAGE:latest -t $FRONTEND_IMAGE:$CI_COMMIT_SHORT_SHA .
+    - docker push $FRONTEND_IMAGE:latest
+    - docker push $FRONTEND_IMAGE:$CI_COMMIT_SHORT_SHA
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master" || $CI_COMMIT_BRANCH == "main"'
+
+# ==========================================================
+# Stage 4: Automated Continuous Deployment
+# Automatically executes rolling update on the remote server
+# ==========================================================
+deploy:production:
+  stage: deploy
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache openssh-client curl bash
+    - eval $(ssh-agent -s)
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - '[[ -f /.dockerenv ]] && echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config'
+  script:
+    - echo "Deploying commit $CI_COMMIT_SHORT_SHA to $SERVER_HOST..."
+    - ssh -p ${SERVER_PORT:-22} ${SERVER_USER:-ubuntu}@$SERVER_HOST "
+        set -e;
+        cd ${SERVER_DEPLOY_PATH:-/opt/dota2-coaching};
+        echo 'Pulling latest git changes...';
+        git pull origin master || git pull origin main;
+        echo '$CI_REGISTRY_PASSWORD' | docker login -u '$CI_REGISTRY_USER' --password-stdin '$CI_REGISTRY';
+        docker compose pull;
+        docker compose up -d --remove-orphans;
+        echo 'Verifying health...';
+        sleep 10;
+        curl -f http://localhost:8000/health || (echo 'Deployment health check failed!' && exit 1);
+        docker image prune -f;
+        echo 'Live deployment complete!'
+      "
+  environment:
+    name: production
+    url: http://$SERVER_HOST
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master" || $CI_COMMIT_BRANCH == "main"'
+      when: on_success
+

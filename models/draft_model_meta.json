@@ -1,0 +1,8 @@
+{
+  "test_auc_roc": 0.6378,
+  "test_accuracy": 0.5995,
+  "test_log_loss": 0.6633,
+  "total_matches": 50000,
+  "train_samples": 40000,
+  "test_samples": 10000
+}
