@@ -5,23 +5,30 @@ from src.data.config import RAW_DATA_DIR, COMPETITIVE_GAME_MODES
 def load_hero_names() -> pd.DataFrame:
     """Loads hero IDs, system names, and localized names."""
     path = RAW_DATA_DIR / "hero_names.csv"
-    df = pd.read_csv(path)
-    return df
+    if path.exists():
+        return pd.read_csv(path)
+    return pd.DataFrame(columns=["hero_id", "name", "localized_name"])
 
 def get_hero_dict() -> Dict[int, str]:
     """Returns a dictionary mapping hero_id -> localized_name."""
     df = load_hero_names()
-    return dict(zip(df["hero_id"], df["localized_name"]))
+    if not df.empty and "hero_id" in df.columns and "localized_name" in df.columns:
+        return dict(zip(df["hero_id"], df["localized_name"]))
+    return {}
 
 def load_item_names() -> pd.DataFrame:
     """Loads item ID to item name mappings."""
     path = RAW_DATA_DIR / "item_ids.csv"
-    return pd.read_csv(path)
+    if path.exists():
+        return pd.read_csv(path)
+    return pd.DataFrame(columns=["item_id", "item_name"])
 
 def get_item_dict() -> Dict[int, str]:
     """Returns a dictionary mapping item_id -> item_name."""
     df = load_item_names()
-    return dict(zip(df["item_id"], df["item_name"]))
+    if not df.empty and "item_id" in df.columns and "item_name" in df.columns:
+        return dict(zip(df["item_id"], df["item_name"]))
+    return {}
 
 def load_matches(competitive_only: bool = True, nrows: Optional[int] = None) -> pd.DataFrame:
     """

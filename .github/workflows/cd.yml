@@ -87,18 +87,32 @@ jobs:
     name: Automatic Deploy to Target Server
     needs: [ build-and-publish ]
     runs-on: ubuntu-latest
-    # Run only if server credentials are provided in repository secrets
-    if: "${{ secrets.SERVER_HOST != '' }}"
     steps:
+      - name: Check Deployment Target Configuration
+        id: check_deploy
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+        run: |
+          if [ -z "$SERVER_HOST" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "ℹ️ Notice: SERVER_HOST secret is not configured."
+            echo "Images are published to GHCR. To auto-deploy to a server, add SERVER_HOST & SSH_PRIVATE_KEY in Settings > Secrets."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout Repository
+        if: steps.check_deploy.outputs.configured == 'true'
         uses: actions/checkout@v4
 
       - name: Setup SSH Agent
+        if: steps.check_deploy.outputs.configured == 'true'
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
       - name: Execute Remote Zero-Downtime Deployment
+        if: steps.check_deploy.outputs.configured == 'true'
         env:
           HOST: ${{ secrets.SERVER_HOST }}
           USER: ${{ secrets.SERVER_USER || 'ubuntu' }}

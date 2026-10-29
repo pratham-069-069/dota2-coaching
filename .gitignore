@@ -72,5 +72,9 @@ docker-compose.override.yml
 data/raw/*
 !data/raw/hero_names.csv
 !data/raw/player_ratings.csv
+!data/raw/item_ids.csv
+!data/raw/ability_ids.csv
+!data/raw/cluster_regions.csv
+!data/raw/patch_dates.csv
 
 
