@@ -6,7 +6,6 @@ import BetweenMatchCoach from "./components/BetweenMatchCoach";
 import PlayerScout from "./components/PlayerScout";
 import MatrixExplorer from "./components/MatrixExplorer";
 import { fetchHealth, fetchHeroes } from "./services/api";
-import NonExistentComponent from "./components/NonExistentComponent";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("draft");

@@ -7,11 +7,13 @@
 set -euo pipefail
 
 # Configurations
-APP_DIR="${APP_DIR:-/opt/dota2-coaching}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+APP_DIR="${APP_DIR:-$REPO_DIR}"
 COMPOSE_FILE="${APP_DIR}/docker-compose.yml"
 HEALTH_URL="http://127.0.0.1:8000/health"
 MAX_ATTEMPTS=15
-SLEEP_SECONDS=5
+SLEEP_SECONDS=4
 
 echo "=========================================================="
 echo "  AEGIS DOTA 2 PLATFORM — AUTOMATED DEPLOYMENT AGENT"
@@ -20,9 +22,13 @@ echo "=========================================================="
 
 cd "${APP_DIR}"
 
-echo ">> Step 1: Pulling latest changes from repository..."
-git fetch origin
-git reset --hard origin/master 2>/dev/null || git reset --hard origin/main
+if [ "${APP_DIR}" = "/opt/dota2-coaching" ]; then
+    echo ">> Step 1: Pulling latest changes from repository..."
+    git fetch origin || true
+    git reset --hard origin/master 2>/dev/null || git reset --hard origin/main 2>/dev/null || true
+else
+    echo ">> Step 1: Working on local repository changes..."
+fi
 
 echo ">> Step 2: Pulling latest pre-built container images..."
 docker compose pull backend frontend || true
