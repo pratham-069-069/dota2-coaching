@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       force_deploy:
-        description: "Force automated deployment to production"
+        description: "Force automated build & publish to GHCR"
         required: false
         default: "true"
 
@@ -20,13 +20,11 @@ permissions:
 
 jobs:
   # ==========================================================
-  # 1. Build and Publish Containers to GHCR
+  # Build and Publish Production Containers to GHCR
   # ==========================================================
   build-and-publish:
     name: Build & Push Images to GitHub Container Registry
     runs-on: ubuntu-latest
-    outputs:
-      image_tag: ${{ steps.meta.outputs.tag }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -77,91 +75,3 @@ jobs:
             ghcr.io/${{ env.REPO }}/frontend:${{ steps.meta.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-  # ==========================================================
-  # 2. Automated Server Deployment (Zero Manual Intervention)
-  # Triggers immediately if SSH secrets are configured.
-  # (If using Watchtower on the server, it auto-detects new images within 60s)
-  # ==========================================================
-  deploy-to-server:
-    name: Automatic Deploy to Target Server
-    needs: [ build-and-publish ]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check Deployment Target Configuration
-        id: check_deploy
-        env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-        run: |
-          if [ -z "$SERVER_HOST" ]; then
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "ℹ️ Notice: SERVER_HOST secret is not configured."
-            echo "Images are published to GHCR. To auto-deploy to a server, add SERVER_HOST & SSH_PRIVATE_KEY in Settings > Secrets."
-          else
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Checkout Repository
-        if: steps.check_deploy.outputs.configured == 'true'
-        uses: actions/checkout@v4
-
-      - name: Setup SSH Agent
-        if: steps.check_deploy.outputs.configured == 'true'
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-
-      - name: Execute Remote Zero-Downtime Deployment
-        if: steps.check_deploy.outputs.configured == 'true'
-        env:
-          HOST: ${{ secrets.SERVER_HOST }}
-          USER: ${{ secrets.SERVER_USER || 'ubuntu' }}
-          PORT: ${{ secrets.SERVER_PORT || '22' }}
-          DEPLOY_PATH: ${{ secrets.SERVER_DEPLOY_PATH || '/opt/dota2-coaching' }}
-          IMAGE_TAG: ${{ needs.build-and-publish.outputs.image_tag }}
-        run: |
-          echo "🚀 Initiating continuous deployment to ${USER}@${HOST}:${DEPLOY_PATH}..."
-
-          # Add remote server to known hosts
-          mkdir -p ~/.ssh
-          ssh-keyscan -p ${PORT} -H ${HOST} >> ~/.ssh/known_hosts
-
-          # Execute remote deployment script with automated rollback
-          ssh -p ${PORT} ${USER}@${HOST} << 'EOF'
-            set -e
-            cd /opt/dota2-coaching || cd ~/dota2-coaching
-
-            echo "📦 Pulling latest code and Docker images..."
-            git pull origin master || git pull origin main
-            
-            # Log in to GHCR on server
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-
-            # Pull and restart containers with rolling update
-            docker compose pull
-            docker compose up -d --remove-orphans
-
-            echo "🩺 Verifying backend health..."
-            HEALTH_URL="http://localhost:8000/health"
-            SUCCESS=0
-            for i in $(seq 1 12); do
-              if curl -s -f "$HEALTH_URL" | grep -q "healthy"; then
-                echo "✅ Platform health check PASSED on attempt $i"
-                SUCCESS=1
-                break
-              fi
-              echo "⏳ Waiting for backend models to load (attempt $i/12)..."
-              sleep 5
-            done
-
-            if [ $SUCCESS -eq 0 ]; then
-              echo "❌ Health check FAILED! Initiating automatic rollback..."
-              docker compose rollback || docker compose restart
-              exit 1
-            fi
-
-            # Clean up old unused dangling images
-            docker image prune -f
-            echo "🎉 Deployment successful and live!"
-          EOF
-
