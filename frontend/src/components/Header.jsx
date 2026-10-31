@@ -48,7 +48,7 @@ export default function Header({ activeTab, setActiveTab, apiOnline }) {
                 AEGIS
               </span>
               <span className="badge badge-gold" style={{ fontSize: "0.65rem" }}>
-                v2.0 PRODUCTION LIVE
+                v2.05 PRODUCTION LIVE
               </span>
             </div>
             <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)", letterSpacing: "0.04em" }}>

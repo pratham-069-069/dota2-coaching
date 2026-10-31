@@ -1,0 +1,15 @@
+# Render Blueprint Specification (Infrastructure-as-Code)
+# https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: dota2-coaching
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: 10000

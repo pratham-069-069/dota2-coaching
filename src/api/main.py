@@ -8,6 +8,7 @@ Exposes endpoints for:
 """
 
 import logging
+from pathlib import Path
 from typing import Dict, List, Optional, Any
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -36,6 +37,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def strip_api_prefix(request, call_next):
+    path = request.scope.get("path", "")
+    if path.startswith("/api/"):
+        request.scope["path"] = path[4:]
+    elif path == "/api":
+        request.scope["path"] = "/"
+    return await call_next(request)
 
 # Initialize models
 draft_advisor = DraftAdvisor()
@@ -198,3 +208,24 @@ def recommend_situational_items(req: ItemRecommendRequest):
         "situational_counters": items,
         "core_timings": benchmarks,
     }
+
+
+# --- Static File Serving for Production React SPA ---
+dist_dir = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+if dist_dir.exists():
+    from starlette.staticfiles import StaticFiles
+    from starlette.responses import FileResponse
+
+    assets_dir = dist_dir / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        file_path = dist_dir / full_path
+        if file_path.exists() and file_path.is_file():
+            return FileResponse(str(file_path))
+        index_file = dist_dir / "index.html"
+        if index_file.exists():
+            return FileResponse(str(index_file))
+        raise HTTPException(status_code=404, detail="SPA entrypoint not found")
